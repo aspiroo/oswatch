@@ -33,93 +33,115 @@ void track_memory_deallocation(ProcessStats *stats, void *addr) {
             MemoryBlock *to_remove = *current;
             *current = (*current)->next;
 
-            // Update statistics
             stats->total_memory_freed += to_remove->size;
             stats->current_memory_usage -= to_remove->size;
 
-            // Free the block
             free((char*)to_remove->syscall_type);
             free(to_remove);
-            return;
+            return;  // Found and freed
         }
         current = &(*current)->next;
     }
+    
+    if (stats->verbose) {
+        // Silently ignore - this is expected for runtime unmaps    
+        fprintf(stderr, "%s[ERROR]%s Double-free or invalid free detected at %p\n",
+            COLOR_RED, COLOR_RESET, addr);
+    }
+    stats->double_free_count++;  
 }
 
 void detect_memory_leaks(ProcessStats *stats) {
-    printf("\n%s╔═══════════════════════════════════════════════════════╗%s\n", COLOR_RED, COLOR_RESET);
-    printf("%s║           MEMORY LEAK ANALYSIS                        ║%s\n", COLOR_RED, COLOR_RESET);
-    printf("%s╚═══════════════════════════════════════════════════════╝%s\n\n", COLOR_RED, COLOR_RESET);
+    printf("\n%s╔═══════════════════════════════════════════════════════╗%s\n", 
+           COLOR_RED, COLOR_RESET);
+    printf("%s║           MEMORY LEAK ANALYSIS                        ║%s\n", 
+           COLOR_RED, COLOR_RESET);
+    printf("%s╚═══════════════════════════════════════════════════════╝%s\n\n", 
+           COLOR_RED, COLOR_RESET);
     
+    int has_leaks = 0;
+    
+    // Check heap leaks
+    size_t heap_leaked = stats->heap_allocated - stats->heap_freed;
+    if (heap_leaked > 0) {
+        has_leaks = 1;
+        printf("%s⚠ HEAP MEMORY LEAK DETECTED:%s\n\n", COLOR_BOLD, COLOR_RESET);
+        printf("  The program's heap grew but was never freed.\n");
+        printf("  This includes malloc() calls and libc overhead.\n\n");
+        printf("  Heap allocated: %s%zu bytes (%.2f KB)%s\n", 
+               COLOR_YELLOW, stats->heap_allocated, stats->heap_allocated / 1024.0, COLOR_RESET);
+        printf("  Heap freed:     %s%zu bytes (%.2f KB)%s\n", 
+               COLOR_YELLOW, stats->heap_freed, stats->heap_freed / 1024.0, COLOR_RESET);
+        printf("  %sNet leaked:      %zu bytes (%.2f KB)%s\n\n", 
+               COLOR_RED, heap_leaked, heap_leaked / 1024.0, COLOR_RESET);
+    }
+    
+    // Check mmap-based leaks
     if (stats->memory_blocks == NULL) {
-        printf("%s✓ No memory leaks detected!%s\n", COLOR_GREEN, COLOR_RESET);
-        return;
-    }
-    
-    // Count different types of leaks
-    size_t small_leak_count = 0;   // Likely program bugs (< 64KB)
-    size_t large_leak_count = 0;   // Likely library loads (>= 64KB)
-    size_t total_small_leaked = 0;
-    size_t total_large_leaked = 0;
-    
-    // First pass: categorize leaks
-    MemoryBlock *current = stats->memory_blocks;
-    while (current) {
-        if (current->size < 65536) {  // 64 KB threshold
-            small_leak_count++;
-            total_small_leaked += current->size;
-        } else {
-            large_leak_count++;
-            total_large_leaked += current->size;
+        if (! has_leaks) {
+            printf("%s✓ No memory leaks detected! %s\n", COLOR_GREEN, COLOR_RESET);
         }
-        current = current->next;
-    }
-    
-    // Show program leaks (small allocations)
-    if (small_leak_count > 0) {
-        printf("%s⚠ PROGRAM MEMORY LEAKS (Likely Bugs):%s\n\n", COLOR_BOLD, COLOR_RESET);
+    } else {
+        // Count different types of leaks
+        size_t malloc_leak_count = 0;
+        size_t mmap_small_leak_count = 0;
+        size_t large_leak_count = 0;
+        size_t total_malloc_leaked = 0;
+        size_t total_small_leaked = 0;
+        size_t total_large_leaked = 0;
         
-        size_t leak_num = 0;
-        current = stats->memory_blocks;
+        // First pass: categorize leaks
+        MemoryBlock *current = stats->memory_blocks;
         while (current) {
-            if (current->size < 65536) {
-                leak_num++;
-                printf("%s  Leak #%zu:%s\n", COLOR_YELLOW, leak_num, COLOR_RESET);
-                printf("    Address:       %p\n", current->address);
-                printf("    Size:          %zu bytes (%.2f KB)\n", 
-                       current->size, current->size / 1024.0);
-                printf("    Allocated via: %s\n", current->syscall_type);
-                printf("\n");
+            if (strstr(current->syscall_type, "brk") != NULL || 
+                strstr(current->syscall_type, "malloc") != NULL) {
+                malloc_leak_count++;
+                total_malloc_leaked += current->size;
+            } else if (current->size < 65536) {
+                mmap_small_leak_count++;
+                total_small_leaked += current->size;
+            } else {
+                large_leak_count++;
+                total_large_leaked += current->size;
             }
             current = current->next;
         }
         
-        printf("%s  Summary:%s\n", COLOR_BOLD, COLOR_RESET);
-        printf("    Program leaks: %s%zu allocations%s\n", COLOR_RED, small_leak_count, COLOR_RESET);
-        printf("    Total leaked:  %s%zu bytes (%.2f KB)%s\n\n", COLOR_RED, total_small_leaked, total_small_leaked / 1024.0, COLOR_RESET);
-    } else {
-        printf("%s✓ No program memory leaks detected!%s\n\n", COLOR_GREEN, COLOR_RESET);
-    }
-    
-    // Show library allocations (for information)
-    if (large_leak_count > 0) {
-        printf("%sℹ LIBRARY/SYSTEM ALLOCATIONS (Not Bugs):%s\n", COLOR_CYAN, COLOR_RESET);
-        printf("  These are shared libraries loaded by the system.\n");
-        printf("  They remain in memory and are managed by the OS.\n\n");
+        // Show runtime allocations (for information)
+        if (mmap_small_leak_count > 0) {
+            printf("%sℹ RUNTIME/STACK ALLOCATIONS (Not Bugs):%s\n", COLOR_CYAN, COLOR_RESET);
+            printf("  These are C runtime and stack allocations.\n");
+            printf("  They are managed automatically by the system.\n\n");
+            
+            printf("  Runtime allocations: %zu\n", mmap_small_leak_count);
+            printf("  Total size:           %zu bytes (%.2f KB)\n\n", 
+                   total_small_leaked, total_small_leaked / 1024.0);
+        }
         
-        printf("  Library allocations: %zu\n", large_leak_count);
-        printf("  Total size:          %zu bytes (%.2f MB)\n\n", 
-               total_large_leaked, total_large_leaked / (1024.0 * 1024.0));
+        // Show library allocations (for information)
+        if (large_leak_count > 0) {
+            printf("%sℹ LIBRARY/SYSTEM ALLOCATIONS (Not Bugs):%s\n", COLOR_CYAN, COLOR_RESET);
+            printf("  These are shared libraries loaded by the system.\n");
+            printf("  They remain in memory and are managed by the OS.\n\n");
+            
+            printf("  Library allocations: %zu\n", large_leak_count);
+            printf("  Total size:          %zu bytes (%.2f MB)\n\n", 
+                   total_large_leaked, total_large_leaked / (1024.0 * 1024.0));
+        }
     }
     
     // Overall summary
-    printf("%s═══════════════════════════════════════════════════════%s\n", COLOR_CYAN, COLOR_RESET);
+    printf("%s═══════════════════════════════════════════════════════%s\n", 
+           COLOR_CYAN, COLOR_RESET);
     printf("%sTOTAL MEMORY SUMMARY:%s\n", COLOR_BOLD, COLOR_RESET);
-    printf("  All allocations: %zu (%.2f MB total)\n", small_leak_count + large_leak_count, (total_small_leaked + total_large_leaked) / (1024.0 * 1024.0));
     
-    if (small_leak_count > 0) {
-        printf("  %s⚠ ACTION NEEDED: Fix %zu program leak(s)!%s\n", COLOR_RED, small_leak_count, COLOR_RESET);
+    if (heap_leaked > 0) {
+        printf("  %s⚠ HEAP LEAK:  %zu bytes not freed! %s\n",
+               COLOR_RED, heap_leaked, COLOR_RESET);
+        printf("  %sRecommendation: Check malloc/free pairs in your code. %s\n",
+               COLOR_YELLOW, COLOR_RESET);
     } else {
-        printf("  %s✓ Program memory management is correct!%s\n", COLOR_GREEN, COLOR_RESET);
+        printf("  %s✓ Program memory management is correct!%s\n",
+               COLOR_GREEN, COLOR_RESET);
     }
 }

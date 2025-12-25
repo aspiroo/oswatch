@@ -1,0 +1,2 @@
+Hello from OSWatch test!
+Testing file I/O operations.

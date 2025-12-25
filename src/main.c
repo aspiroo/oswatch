@@ -3,8 +3,8 @@
 void print_banner() {
     printf("\n");
     printf("%s╔═══════════════════════════════════════════════════════╗%s\n", COLOR_CYAN, COLOR_RESET);
-    printf("%s║              OSWATCH - System Call Monitor           ║%s\n", COLOR_CYAN, COLOR_RESET);
-    printf("%s║          Process & Memory Analysis Tool              ║%s\n", COLOR_CYAN, COLOR_RESET);
+    printf("%s║              OSWATCH - System Call Monitor            ║%s\n", COLOR_CYAN, COLOR_RESET);
+    printf("%s║          Process & Memory Analysis Tool               ║%s\n", COLOR_CYAN, COLOR_RESET);
     printf("%s╚═══════════════════════════════════════════════════════╝%s\n", COLOR_CYAN, COLOR_RESET);
     printf("\n");
 }
@@ -93,36 +93,38 @@ int main(int argc, char *argv[]) {
 // Initialize process statistics structure
 void init_process_stats(ProcessStats *stats, pid_t pid, char *name) {
     memset(stats, 0, sizeof(ProcessStats));
+    
     stats->pid = pid;
-    stats->process_name = strdup(name);
+    stats->process_name = name;
     stats->memory_blocks = NULL;
     stats->open_files = NULL;
+    
+    // Record start time
     clock_gettime(CLOCK_MONOTONIC, &stats->start_time);
 }
 
 // Cleanup and free allocated memory
 void cleanup_process_stats(ProcessStats *stats) {
-    if (stats->process_name) {
-        free(stats->process_name);
+    // Cleanup memory blocks
+    MemoryBlock *mem_current = stats->memory_blocks;
+    while (mem_current) {
+        MemoryBlock *next = mem_current->next;
+        free((char*)mem_current->syscall_type);
+        free(mem_current);
+        mem_current = next;
     }
-
-    // Free memory blocks
-    MemoryBlock *mb = stats->memory_blocks;
-    while (mb) {
-        MemoryBlock *next = mb->next;
-        free((char*)mb->syscall_type);
-        free(mb);
-        mb = next;
+    
+    // Cleanup file descriptors
+    FileDescriptor *file_current = stats->open_files;
+    while (file_current) {
+        FileDescriptor *next = file_current->next;
+        free(file_current->filename);
+        free(file_current);
+        file_current = next;
     }
-
-    // Free file descriptors
-    FileDescriptor *fd = stats->open_files;
-    while (fd) {
-        FileDescriptor *next = fd->next;
-        free(fd->filename);
-        free(fd);
-        fd = next;
-    }
+    
+    // Cleanup malloc hash table
+    cleanup_malloc_table(stats);
 }
 
 // Calculate time difference in milliseconds
