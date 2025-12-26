@@ -1,0 +1,39 @@
+# Compiled binaries
+oswatch
+liboswatch_malloc.so
+*.so
+*.o
+*.a
+
+# Build directories
+obj/
+build/
+
+# Test executables
+test/leak_test
+test/no_leak_test
+test/multiple_leaks_test
+test/mixed_test
+test/file_test
+test/comprehensive_test
+
+# Test output files
+test_output.txt
+*.log
+/tmp/oswatch_test. txt
+
+# Editor files
+*.swp
+*.swo
+*~
+. vscode/
+. idea/
+*.code
+
+# OS files
+.DS_Store
+Thumbs. db
+
+# Temporary files
+*.tmp
+/tmp/
