@@ -98,7 +98,7 @@ test/mixed_test: test/mixed_test.c
 test/file_test: test/file_test.c
 	$(CC) -o test/file_test test/file_test.c
 
-test/file_test: test/comprehensive_test.c
+test/comprehensive_test: test/comprehensive_test.c
 	$(CC) -o test/comprehensive_test test/comprehensive_test.c
 
 # Clean build files

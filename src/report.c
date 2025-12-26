@@ -43,14 +43,12 @@ void print_statistics(ProcessStats *stats) {
 
     // Memory stats
     printf("%sMemory Statistics:%s\n", COLOR_BOLD, COLOR_RESET);
-    printf("  Heap Allocated:  %zu bytes (%.2f KB)\n", stats->heap_allocated, stats->heap_allocated / 1024.0);
-    printf("  Heap Freed:      %zu bytes (%.2f KB)\n", stats->heap_freed, stats->heap_freed / 1024.0);
-    printf("  Heap Leaked:     %zu bytes (%.2f KB)\n", stats->heap_allocated - stats->heap_freed, (stats->heap_allocated - stats->heap_freed) / 1024.0);
-    printf("  %s(Note: Heap tracking includes libc overhead)%s\n", COLOR_CYAN, COLOR_RESET);
-    printf("  Total Allocated: %zu bytes (%.2f KB)\n", stats->total_memory_allocated, stats->total_memory_allocated / 1024.0);
-    printf("  Total Freed:      %zu bytes (%.2f KB)\n",  stats->total_memory_freed, stats->total_memory_freed / 1024.0);
-    printf("  Peak Usage:      %zu bytes (%.2f KB)\n", stats->peak_memory_usage, stats->peak_memory_usage / 1024.0);
-    printf("  Current Usage:    %zu bytes (%.2f KB)\n", stats->current_memory_usage, stats->current_memory_usage / 1024.0);
+    
+    // Show heap info but clarify it's NOT a leak indicator
+    printf("  Heap Size (brk):  %zu bytes (%.2f KB)\n", stats->heap_allocated, stats->heap_allocated / 1024.0);
+    printf("  %s(Heap doesn't shrink after free - this is normal)%s\n",  COLOR_CYAN, COLOR_RESET);
+    printf("  Total Allocated:   %zu bytes (%.2f KB)\n", stats->total_memory_allocated, stats->total_memory_allocated / 1024.0);
+    printf("  Peak Usage:       %zu bytes (%.2f KB)\n", stats->peak_memory_usage, stats->peak_memory_usage / 1024.0);
     printf("\n");
 
     // File stats

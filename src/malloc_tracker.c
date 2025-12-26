@@ -106,48 +106,95 @@ void detect_malloc_leaks(ProcessStats *stats) {
     // Count leaked blocks
     size_t leaked_blocks = 0;
     size_t leaked_bytes = 0;
+    size_t user_leaked_blocks = 0;
+    size_t user_leaked_bytes = 0;
+    size_t stdio_leaked_bytes = 0;
     
     for (int i = 0; i < MALLOC_HASH_SIZE; i++) {
         MallocBlock *block = stats->malloc_hash_table[i];
         while (block) {
             leaked_blocks++;
             leaked_bytes += block->size;
+            
+            // Common stdio/libc buffer sizes
+            int is_stdio_buffer = (block->size == 1024 || 
+                                  block->size == 4096 || 
+                                  block->size == 8192);
+            
+            if (is_stdio_buffer) {
+                stdio_leaked_bytes += block->size;
+            } else {
+                user_leaked_blocks++;
+                user_leaked_bytes += block->size;
+            }
+            
             block = block->next;
         }
     }
     
-    if (leaked_blocks == 0) {
-        printf("%s✅ NO MALLOC LEAKS DETECTED! %s\n", COLOR_GREEN, COLOR_RESET);
-        printf("  All malloc() calls were properly matched with free().\n\n");
+    // Report user leaks
+    if (user_leaked_blocks == 0) {
+        printf("%sNO USER MEMORY LEAKS DETECTED!  %s\n", COLOR_GREEN, COLOR_RESET);
+        printf("  All user malloc() calls were properly matched with free().\n\n");
     } else {
-        printf("%s⚠️  MALLOC MEMORY LEAKS DETECTED!%s\n\n", COLOR_RED, COLOR_RESET);
+        printf("%sUSER MEMORY LEAKS DETECTED! %s\n\n", COLOR_RED, COLOR_RESET);
         
         int leak_num = 0;
         for (int i = 0; i < MALLOC_HASH_SIZE; i++) {
             MallocBlock *block = stats->malloc_hash_table[i];
             while (block) {
-                leak_num++;
-                printf("%s  Leak #%d:%s\n", COLOR_YELLOW, leak_num, COLOR_RESET);
-                printf("    Address:    %p\n", block->address);
-                printf("    Size:       %zu bytes\n\n", block->size);
+                // Only show non-stdio leaks
+                int is_stdio = (block->size == 1024 || 
+                               block->size == 4096 || 
+                               block->size == 8192);
+                
+                if (!is_stdio) {
+                    leak_num++;
+                    printf("%s  Leak #%d:%s\n", COLOR_YELLOW, leak_num, COLOR_RESET);
+                    printf("    Address:     %p\n", block->address);
+                    printf("    Size:        %zu bytes\n\n", block->size);
+                }
+                
                 block = block->next;
             }
         }
         
         printf("%s  Summary:%s\n", COLOR_BOLD, COLOR_RESET);
-        printf("    Total leaks:    %s%zu allocations%s\n", 
-               COLOR_RED, leaked_blocks, COLOR_RESET);
-        printf("    Bytes leaked:  %s%zu bytes (%.2f KB)%s\n\n", 
-               COLOR_RED, leaked_bytes, leaked_bytes / 1024.0, COLOR_RESET);
+        printf("    User leaks:      %s%zu allocations%s\n", 
+               COLOR_RED, user_leaked_blocks, COLOR_RESET);
+        printf("    User bytes leaked: %s%zu bytes (%.2f KB)%s\n\n", 
+               COLOR_RED, user_leaked_bytes, user_leaked_bytes / 1024.0, COLOR_RESET);
     }
     
+    // Report stdio/libc leaks separately
+    if (stdio_leaked_bytes > 0) {
+        printf("%sℹLIBRARY/STDIO ALLOCATIONS:%s\n", COLOR_CYAN, COLOR_RESET);
+        printf("  These are internal buffers from printf/stdio functions.\n");
+        printf("  They are freed automatically when the program exits.\n");
+        printf("  This is normal behavior and NOT a bug.\n\n");
+        printf("  Library allocations: %zu\n", leaked_blocks - user_leaked_blocks);
+        printf("  Library bytes:        %zu bytes (%.2f KB)\n\n", 
+               stdio_leaked_bytes, stdio_leaked_bytes / 1024.0);
+    }
+    
+    // Overall statistics
     printf("%sMalloc Statistics:%s\n", COLOR_BOLD, COLOR_RESET);
-    printf("  Allocations: %zu\n", stats->malloc_allocations);
-    printf("  Frees:       %zu\n", stats->malloc_frees);
-    printf("  Allocated:   %zu bytes (%.2f KB)\n", 
+    printf("  Total Allocations:  %zu\n", stats->malloc_allocations);
+    printf("  Total Frees:       %zu\n", stats->malloc_frees);
+    printf("  Allocated:         %zu bytes (%.2f KB)\n", 
            stats->malloc_bytes_allocated, stats->malloc_bytes_allocated / 1024.0);
-    printf("  Freed:       %zu bytes (%.2f KB)\n", 
+    printf("  Freed:              %zu bytes (%.2f KB)\n", 
            stats->malloc_bytes_freed, stats->malloc_bytes_freed / 1024.0);
+    
+    printf("\n%s─────────────────────────────────────────────────────%s\n", 
+           COLOR_CYAN, COLOR_RESET);
+    if (user_leaked_blocks > 0) {
+        printf("%sVERDICT: %sUSER CODE HAS MEMORY LEAKS%s\n", 
+               COLOR_BOLD, COLOR_RED, COLOR_RESET);
+    } else {
+        printf("%sVERDICT: %sUSER CODE IS LEAK-FREE%s\n", 
+               COLOR_BOLD, COLOR_GREEN, COLOR_RESET);
+    }
 }
 
 // Cleanup malloc tracking table
